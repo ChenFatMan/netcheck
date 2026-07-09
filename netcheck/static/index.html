@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NetCheck · 一键网络延迟检测</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --panel-2: #1e2739;
+    --line: #2a3448;
+    --text: #e6ebf5;
+    --muted: #8a97b1;
+    --accent: #4f8cff;
+    --ok: #35c46a;
+    --warn: #f5a623;
+    --bad: #ef4d5a;
+    --chip: #232d42;
+    font-synthesis: none;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .controls {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    margin: 24px 0 8px;
+  }
+  button.run {
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+    padding: 12px 26px; font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: filter .15s ease, transform .05s ease;
+  }
+  button.run:hover:not(:disabled) { filter: brightness(1.08); }
+  button.run:active:not(:disabled) { transform: translateY(1px); }
+  button.run:disabled { opacity: .55; cursor: default; }
+  button.ghost {
+    background: transparent; color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+  }
+  button.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button.ghost:disabled { opacity: .45; cursor: default; }
+  .opt { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .opt input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
+  .status { font-size: 13px; color: var(--muted); min-height: 20px; margin-top: 6px; }
+  .status.err { color: var(--bad); }
+  .spacer { margin-left: auto; }
+
+  /* Live insert / update highlight so the eye can follow streamed changes. */
+  @keyframes flashIn { from { background: rgba(79,140,255,.18); } to { background: transparent; } }
+  .flash { animation: flashIn .8s ease-out; }
+  @keyframes rowFlash {
+    0% { background: rgba(245,166,35,.35); }
+    100% { background: transparent; }
+  }
+  tr.jump-flash td { animation: rowFlash 1.6s ease-out; }
+  .pending { opacity: .55; }
+  .hidden { display: none !important; }
+
+  /* Target editor */
+  .editor {
+    margin: 8px 0 4px; padding: 14px 16px; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--line); display: none;
+  }
+  .editor.open { display: block; }
+  .editor h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .editor .hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .trow { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .trow input {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 7px; padding: 7px 9px; font-size: 13px;
+  }
+  .trow input.tname { width: 150px; flex: none; }
+  .trow input.turl { flex: 1; min-width: 0; }
+  .trow input.bad-input { border-color: var(--bad); }
+  .trow .del {
+    background: transparent; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 7px; width: 30px; height: 30px; cursor: pointer; flex: none;
+    font-size: 15px; line-height: 1;
+  }
+  .trow .del:hover { border-color: var(--bad); color: var(--bad); }
+  .editor-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  .editor-err { color: var(--bad); font-size: 12px; }
+
+  .verdict {
+    margin: 20px 0; padding: 16px 18px; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--line);
+    font-size: 15px; display: none;
+  }
+  .verdict .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+  section { margin-top: 28px; display: none; }
+  section h2 { font-size: 15px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; margin: 0 0 12px; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 12px;
+  }
+  .card-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.bad { background: var(--bad); }
+  .name { font-weight: 600; font-size: 15px; }
+  .total { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 15px; }
+  .total b { font-size: 18px; }
+  .diag { margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .diag.hot { color: var(--warn); }
+
+  .bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden;
+    margin: 12px 0 8px; background: var(--panel-2); }
+  .bar span { display: block; height: 100%; }
+  .seg-dns { background: #7c5cff; }
+  .seg-tcp { background: #4f8cff; }
+  .seg-tls { background: #35c46a; }
+  .seg-server { background: #f5a623; }
+  .seg-download { background: #ef4d5a; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+    margin-right: 5px; vertical-align: middle; }
+
+  .geo-line { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .chip { display: inline-block; background: var(--chip); border-radius: 5px;
+    padding: 1px 7px; margin-right: 6px; font-size: 12px; }
+  .chip.jump { cursor: pointer; background: rgba(245,166,35,.18); color: var(--warn); }
+  .chip.jump:hover { background: rgba(245,166,35,.30); }
+
+  .card-actions { margin-top: 12px; }
+  .inline-trace { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line);
+    vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.hoprow { cursor: pointer; }
+  tr.hoprow:hover td { background: rgba(79,140,255,.06); }
+  tr.slow td { background: rgba(239,77,90,.08); }
+  tr.slow:hover td { background: rgba(239,77,90,.14); }
+  tr.gw td { color: var(--muted); }
+  .caret { display: inline-block; width: 10px; color: var(--muted); transition: transform .15s; }
+  tr.expanded .caret { transform: rotate(90deg); }
+  tr.detailrow td { background: #0b0f18; padding: 0; }
+  tr.detailrow.hidden { display: none; }
+  .detail { padding: 12px 14px; font-size: 12.5px; }
+  .detail .probes { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+  .probe {
+    font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 9px; font-size: 12px;
+  }
+  .probe.lost { color: var(--muted); border-style: dashed; opacity: .7; }
+  .detail .stat { color: var(--muted); }
+  .detail .stat b { color: var(--text); font-weight: 600; }
+  .loss-warn { color: var(--warn); }
+
+  .ip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .src { font-size: 11px; color: var(--muted); }
+
+  .keynode { margin: 12px 0; padding: 12px 14px; border-radius: 10px;
+    background: var(--panel-2); }
+  .keynode .role { font-weight: 600; font-size: 13px; }
+  .trace-analysis { font-size: 13.5px; margin: 10px 0 14px; padding: 10px 12px;
+    border-left: 3px solid var(--accent); background: var(--panel-2);
+    border-radius: 0 8px 8px 0; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  pre { background: #0b0f18; border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; overflow-x: auto; font-size: 12px; color: #b9c4da; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite;
+    vertical-align: middle; margin-right: 7px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Periodic scheduler toggle in the control bar. */
+  .sched {
+    display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+    padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  }
+  .sched input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
+  .sched select {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; padding: 4px 6px; font-size: 12px;
+  }
+  .sched .next { font-variant-numeric: tabular-nums; color: var(--text); }
+  .sched .dot-live { width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+    box-shadow: 0 0 0 0 rgba(53,196,106,.5); animation: pulse 2s infinite; }
+  .sched.off .dot-live { background: var(--muted); animation: none; box-shadow: none; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(53,196,106,.5); }
+    70% { box-shadow: 0 0 0 6px rgba(53,196,106,0); }
+    100% { box-shadow: 0 0 0 0 rgba(53,196,106,0); }
+  }
+
+  /* Trend chart panel. */
+  .trend { margin-top: 28px; display: none; }
+  .trend.show { display: block; }
+  .trend-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .trend-head h2 { font-size: 15px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; margin: 0; }
+  .segbar { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .segbar button {
+    background: transparent; color: var(--muted); border: 0; border-right: 1px solid var(--line);
+    padding: 6px 12px; font-size: 12px; cursor: pointer; transition: background .12s, color .12s;
+  }
+  .segbar button:last-child { border-right: 0; }
+  .segbar button:hover { color: var(--text); }
+  .segbar button.active { background: var(--accent); color: #fff; }
+  .trend-body {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 16px 12px; position: relative;
+  }
+  .chart-wrap { position: relative; width: 100%; }
+  .chart-wrap canvas { display: block; width: 100%; height: 300px; }
+  .chart-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 60px 0; }
+  .chart-tip {
+    position: absolute; pointer-events: none; z-index: 5; background: #0b0f18;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px;
+    color: var(--text); box-shadow: 0 6px 18px rgba(0,0,0,.4); min-width: 150px;
+    transform: translate(-50%, -100%);
+  }
+  .chart-tip .tip-time { color: var(--muted); margin-bottom: 5px; font-size: 11px; }
+  .chart-tip .tip-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .chart-tip .tip-row i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .chart-tip .tip-row b { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; margin-top: 12px; }
+  .chart-legend .lg {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text);
+    padding: 2px 4px; border-radius: 5px; user-select: none;
+  }
+  .chart-legend .lg.muted { color: var(--muted); opacity: .5; }
+  .chart-legend .lg i { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .trend-meta { color: var(--muted); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>NetCheck</h1>
+    <span class="sub">一键检测本机到常用站点的延迟 · 逐跳定位链路慢点 · 实时展示节点归属地</span>
+  </header>
+
+  <div class="controls">
+    <button class="run" id="runBtn">开始检测</button>
+    <label class="opt"><input type="checkbox" id="geoOnline" checked /> 在线查询归属地</label>
+    <span class="spacer"></span>
+    <button class="ghost" id="editBtn">编辑目标站点</button>
+    <button class="ghost" id="exportBtn" disabled>导出结果</button>
+  </div>
+
+  <div class="controls">
+    <div class="sched" id="sched">
+      <span class="dot-live" id="schedDot"></span>
+      <label class="opt" style="gap:6px">
+        <input type="checkbox" id="schedToggle" /> 定时自动检测
+      </label>
+      <select id="schedInterval" title="检测间隔">
+        <option value="300">每 5 分钟</option>
+        <option value="600" selected>每 10 分钟</option>
+        <option value="900">每 15 分钟</option>
+        <option value="1800">每 30 分钟</option>
+        <option value="3600">每小时</option>
+      </select>
+      <span class="next" id="schedNext">—</span>
+    </div>
+  </div>
+
+  <div class="editor" id="editor">
+    <h3>目标站点</h3>
+    <div class="hint">仅支持 http/https。留空则使用内置默认列表。最多 12 个。改动会保存在本浏览器。</div>
+    <div id="targetRows"></div>
+    <div class="editor-actions">
+      <button class="ghost" id="addRow">+ 添加站点</button>
+      <button class="ghost" id="resetRows">恢复默认</button>
+      <button class="ghost" id="saveRows">保存</button>
+      <span class="editor-err" id="editorErr"></span>
+    </div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="verdict" id="verdict"></div>
+
+  <div class="trend show" id="trendPanel">
+    <div class="trend-head">
+      <h2>流量走势</h2>
+      <span class="spacer"></span>
+      <div class="segbar" id="metricSeg">
+        <button data-metric="total_median" class="active">延迟(中位)</button>
+        <button data-metric="total_p95">延迟(P95)</button>
+        <button data-metric="speed_median">下载速率</button>
+        <button data-metric="failure_rate">失败率</button>
+      </div>
+      <div class="segbar" id="rangeSeg">
+        <button data-range="3600">1 小时</button>
+        <button data-range="21600" class="active">6 小时</button>
+        <button data-range="86400">24 小时</button>
+        <button data-range="259200">3 天</button>
+        <button data-range="604800">7 天</button>
+      </div>
+    </div>
+    <div class="trend-body">
+      <div class="chart-wrap">
+        <canvas id="trendChart"></canvas>
+        <div class="chart-empty hidden" id="chartEmpty">暂无历史数据，定时检测或手动检测后这里会出现走势曲线。</div>
+        <div class="chart-tip hidden" id="chartTip"></div>
+      </div>
+      <div class="chart-legend" id="trendLegend"></div>
+      <div class="trend-meta" id="trendMeta"></div>
+    </div>
+  </div>
+
+  <section id="targetsSec">
+    <h2>站点延迟</h2>
+    <div id="targets"></div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// ============================================================================
+// Formatting helpers
+// ============================================================================
+function fmtSec(v) {
+  if (v === null || v === undefined) return "-";
+  if (v < 1) return Math.round(v * 1000) + "ms";
+  return v.toFixed(2) + "s";
+}
+function fmtMs(v) {
+  if (v === null || v === undefined) return "-";
+  return Math.round(v) + "ms";
+}
+function fmtRate(v) {
+  if (v === null || v === undefined) return "-";
+  if (v < 1024) return v.toFixed(0) + " B/s";
+  if (v < 1048576) return (v / 1024).toFixed(1) + " KB/s";
+  return (v / 1048576).toFixed(1) + " MB/s";
+}
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function healthClass(t) {
+  if (!t.ok) return "bad";
+  const total = t.total_median || 0;
+  if (total >= 1.0 || (t.failures || 0) > 0) return "warn";
+  return "ok";
+}
+
+const PHASES = [
+  ["dns", "seg-dns", "DNS 解析"],
+  ["tcp", "seg-tcp", "TCP 连接"],
+  ["tls", "seg-tls", "TLS 握手"],
+  ["server", "seg-server", "服务端响应"],
+  ["download", "seg-download", "内容下载"],
+];
+function phaseBar(phases) {
+  const parts = PHASES.map(([k]) => Math.max(0, phases[k] || 0));
+  const sum = parts.reduce((a, b) => a + b, 0) || 1;
+  const segs = PHASES.map(([k, cls], i) => {
+    const pct = (parts[i] / sum) * 100;
+    if (pct <= 0) return "";
+    return `<span class="${cls}" style="width:${pct.toFixed(2)}%" title="${cls}"></span>`;
+  }).join("");
+  const legend = PHASES.map(([k, cls, label]) =>
+    `<span><i class="${cls}"></i>${label} ${fmtSec(phases[k])}</span>`).join("");
+  return `<div class="bar">${segs}</div><div class="legend">${legend}</div>`;
+}
+function geoLine(geo) {
+  if (!geo) return "";
+  const bits = [];
+  if (geo.location) bits.push(`<span class="chip">${esc(geo.location)}</span>`);
+  if (geo.carrier && geo.carrier !== "-") bits.push(`<span class="chip">${esc(geo.carrier)}</span>`);
+  if (geo.asn) bits.push(`<span class="chip">${esc(geo.asn)}</span>`);
+  return `<div class="geo-line">${esc(geo.ip || "")} ${bits.join(" ")}</div>`;
+}
+
+// ============================================================================
+// DOM id helpers
+// ============================================================================
+function targetId(name) { return "tg-" + encodeURIComponent(name); }
+function hopRowId(name, hop) { return "hop-" + encodeURIComponent(name) + "-" + hop; }
+function detailRowId(name, hop) { return "det-" + encodeURIComponent(name) + "-" + hop; }
+
+// ============================================================================
+// Target editor (persisted to localStorage)
+// ============================================================================
+const DEFAULT_TARGETS = [
+  { name: "百度", url: "https://www.baidu.com" },
+  { name: "阿里云", url: "https://www.aliyun.com" },
+  { name: "腾讯云", url: "https://cloud.tencent.com" },
+  { name: "码云 Gitee", url: "https://gitee.com" },
+  { name: "GitHub", url: "https://github.com" },
+  { name: "微软", url: "https://www.microsoft.com" },
+];
+const STORE_KEY = "netcheck.targets.v1";
+
+function loadTargets() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return DEFAULT_TARGETS.map((t) => ({ ...t }));
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr) && arr.length) return arr;
+  } catch {}
+  return DEFAULT_TARGETS.map((t) => ({ ...t }));
+}
+function usingCustomTargets() { return localStorage.getItem(STORE_KEY) !== null; }
+
+function targetRowHTML(t) {
+  return `
+    <div class="trow">
+      <input class="tname" placeholder="名称" value="${esc(t.name || "")}" />
+      <input class="turl" placeholder="https://example.com" value="${esc(t.url || "")}" />
+      <button class="del" title="删除">×</button>
+    </div>`;
+}
+function renderEditorRows(targets) {
+  const box = $("targetRows");
+  box.innerHTML = targets.map(targetRowHTML).join("");
+  box.querySelectorAll(".del").forEach((btn) => {
+    btn.addEventListener("click", () => { btn.closest(".trow").remove(); });
+  });
+}
+function collectEditorRows() {
+  return [...$("targetRows").querySelectorAll(".trow")].map((row) => ({
+    urlEl: row.querySelector(".turl"),
+    name: row.querySelector(".tname").value.trim(),
+    url: row.querySelector(".turl").value.trim(),
+  }));
+}
+// Light client-side validation mirroring the server; the server re-validates.
+function validateEditor() {
+  const rows = collectEditorRows();
+  rows.forEach((r) => r.urlEl.classList.remove("bad-input"));
+  const nonEmpty = rows.filter((r) => r.url || r.name);
+  if (!nonEmpty.length) return { ok: true, targets: [] };
+  if (nonEmpty.length > 12) return { ok: false, msg: "最多 12 个站点" };
+  const out = [];
+  for (const r of nonEmpty) {
+    let u;
+    try { u = new URL(r.url); } catch { r.urlEl.classList.add("bad-input"); return { ok: false, msg: `无效 URL：${r.url || "(空)"}` }; }
+    if (u.protocol !== "http:" && u.protocol !== "https:") {
+      r.urlEl.classList.add("bad-input");
+      return { ok: false, msg: `仅支持 http/https：${r.url}` };
+    }
+    out.push({ name: r.name || u.hostname, url: r.url });
+  }
+  return { ok: true, targets: out };
+}
+function currentTargetsForRun() {
+  if (!usingCustomTargets()) return [];
+  return loadTargets();
+}
+
+$("editBtn").addEventListener("click", () => {
+  const ed = $("editor");
+  const opening = !ed.classList.contains("open");
+  ed.classList.toggle("open");
+  if (opening) { renderEditorRows(loadTargets()); $("editorErr").textContent = ""; }
+});
+$("addRow").addEventListener("click", () => {
+  $("targetRows").insertAdjacentHTML("beforeend", targetRowHTML({ name: "", url: "" }));
+  const rows = $("targetRows").querySelectorAll(".trow");
+  const last = rows[rows.length - 1];
+  last.querySelector(".del").addEventListener("click", () => last.remove());
+});
+$("resetRows").addEventListener("click", () => {
+  renderEditorRows(DEFAULT_TARGETS.map((t) => ({ ...t })));
+  $("editorErr").textContent = "";
+});
+$("saveRows").addEventListener("click", () => {
+  const res = validateEditor();
+  if (!res.ok) { $("editorErr").textContent = res.msg; return; }
+  if (!res.targets.length) {
+    localStorage.removeItem(STORE_KEY);
+    $("editorErr").textContent = "已清空，将使用默认站点";
+  } else {
+    localStorage.setItem(STORE_KEY, JSON.stringify(res.targets));
+    $("editorErr").textContent = `已保存 ${res.targets.length} 个站点`;
+  }
+});
+
+// ============================================================================
+// Target card rendering
+// ============================================================================
+function targetCardHTML(t) {
+  const cls = healthClass(t);
+  const diagHot = cls !== "ok" ? "hot" : "";
+  const totalTxt = t.ok
+    ? `<b>${fmtSec(t.total_median)}</b> <span class="src">中位</span>`
+    : `<b style="color:var(--bad)">访问失败</b>`;
+  const traceBtn = t.ok
+    ? `<button class="ghost tracebtn" data-name="${esc(t.name)}" data-url="${esc(t.url)}">查看路由</button>`
+    : "";
+  return `
+    <div class="card-top">
+      <span class="dot ${cls}"></span>
+      <span class="name">${esc(t.name)}</span>
+      <span class="src">${esc(t.url)}</span>
+      <span class="total">${totalTxt}</span>
+    </div>
+    <div class="diag ${diagHot}">${esc(t.diagnosis)}${
+      t.speed_median ? ` · 下载 ${fmtRate(t.speed_median)}` : ""}${
+      t.failures ? ` · 失败 ${t.failures}/${t.samples}` : ""}</div>
+    ${t.ok ? phaseBar(t.phases) : ""}
+    ${geoLine(t.geo)}
+    <div class="card-actions">${traceBtn}</div>
+    <div class="inline-trace hidden" data-role="inlinetrace"></div>`;
+}
+function pendingCardHTML(name) {
+  return `
+    <div class="card-top">
+      <span class="spinner"></span>
+      <span class="name">${esc(name)}</span>
+      <span class="total src">检测中…</span>
+    </div>`;
+}
+
+// ============================================================================
+// Hop rendering (shared)
+// ============================================================================
+// A traceroute "*" at an intermediate hop is almost never packet loss: routers
+// rate-limit or suppress the ICMP TTL-exceeded reply while still forwarding
+// traffic. So we show intermediate silence as a neutral "应答 n/m", and only
+// call it loss at the destination hop (h.is_dest, where loss_pct is set).
+function respCell(h) {
+  if (!h.ip) return `<span class="src">静默</span>`;
+  const sent = h.probes_sent || 0;
+  const got = h.responded == null ? (h.probes_ms || []).length : h.responded;
+  if (h.is_dest && h.loss_pct) {
+    return `<span class="loss-warn" title="目标未完全应答，疑似真实丢包">${got}/${sent} · 丢${h.loss_pct}%</span>`;
+  }
+  if (got >= sent) return `<span class="src">${got}/${sent}</span>`;
+  // Partial/none reply at a transit hop — neutral, likely ICMP rate-limiting.
+  return `<span class="src" title="该跳限速/不回 ICMP，通常不代表丢包">${got}/${sent}</span>`;
+}
+// The main hop row: cells only (wrapped in <tr> by the caller).
+function hopRowInner(h) {
+  const geo = h.geo || {};
+  const loc = geo.location || (h.ip ? '<span class="pending">查询归属地…</span>' : "无响应");
+  const carrier = geo.carrier && geo.carrier !== "-" ? geo.carrier : "";
+  const caret = h.ip ? '<span class="caret">▸</span>' : "";
+  return `<td>${caret}</td>
+    <td class="num">${h.hop}</td>
+    <td class="ip">${esc(h.ip || "*")}</td>
+    <td class="num">${h.median_ms == null ? "-" : fmtMs(h.median_ms)}</td>
+    <td class="num" data-role="loss">${respCell(h)}</td>
+    <td data-role="geo">${loc}${carrier ? ` · ${esc(carrier)}` : ""}${
+      geo.asn ? ` <span class="src">${esc(geo.asn)}</span>` : ""}</td>`;
+}
+function hopDetailHTML(h) {
+  const sent = h.probes_sent || 0;
+  const got = (h.probes_ms || []).length;
+  const probes = [];
+  for (let i = 0; i < sent; i++) {
+    if (i < got) probes.push(`<span class="probe">${h.probes_ms[i].toFixed(1)} ms</span>`);
+    else probes.push(`<span class="probe lost">✕ 无回应</span>`);
+  }
+  // Reply semantics differ for intermediate vs destination hops (see lossCell).
+  let replyTxt;
+  if (h.is_dest) {
+    replyTxt = h.loss_pct
+      ? `<span class="loss-warn">目标 ${sent - got}/${sent} 未回应（疑似丢包 ${h.loss_pct}%）</span>`
+      : `目标应答正常（${got}/${sent}）`;
+  } else if (got === 0) {
+    replyTxt = `<span class="src">该跳静默：0/${sent} 回应（路由器多为限速 ICMP，通常不代表丢包）</span>`;
+  } else if (got < sent) {
+    replyTxt = `<span class="src">部分回应：${got}/${sent}（中间跳限速 ICMP 常见，非丢包判据）</span>`;
+  } else {
+    replyTxt = `全部回应（${got}/${sent}）`;
+  }
+  return `<div class="detail">
+    <div>第 ${h.hop} 跳 <span class="ip">${esc(h.ip || "*")}</span> · 每次探测延迟：</div>
+    <div class="probes">${probes.join("")}</div>
+    <div class="stat">
+      最小 <b>${fmtMs(h.min_ms)}</b> · 中位 <b>${fmtMs(h.median_ms)}</b> · 最大 <b>${fmtMs(h.max_ms)}</b> · ${replyTxt}
+      ${h.slow ? ' · <span class="loss-warn">该跳延迟偏高</span>' : ""}
+    </div>
+  </div>`;
+}
+function keyNodeHTML(n) {
+  const geo = n.geo || {};
+  return `<div class="keynode">
+    <span class="role">${esc(n.role)}</span> · 第 ${n.hop} 跳
+    <span class="ip">${esc(n.ip)}</span> · ${fmtMs(n.median_ms)}
+    ${geo.location ? `<div class="geo-line">${esc(geo.location)}${
+      geo.carrier && geo.carrier !== "-" ? " · " + esc(geo.carrier) : ""}${
+      geo.asn ? ' <span class="src">' + esc(geo.asn) + "</span>" : ""}</div>` : ""}
+  </div>`;
+}
+// Click-to-expand for a hop row (reveals the per-probe detail row).
+function attachHopToggle(name, hopNo) {
+  const row = document.getElementById(hopRowId(name, hopNo));
+  const det = document.getElementById(detailRowId(name, hopNo));
+  if (!row || !det) return;
+  row.classList.add("hoprow");
+  row.addEventListener("click", () => {
+    const hidden = det.classList.toggle("hidden");
+    row.classList.toggle("expanded", !hidden);
+  });
+}
+function scrollToHop(name, hopNo) {
+  const row = document.getElementById(hopRowId(name, hopNo));
+  if (!row) return;
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  row.classList.remove("jump-flash");
+  void row.offsetWidth; // restart animation
+  row.classList.add("jump-flash");
+  const det = document.getElementById(detailRowId(name, hopNo));
+  if (det && det.classList.contains("hidden")) {
+    det.classList.remove("hidden");
+    row.classList.add("expanded");
+  }
+}
+
+// ============================================================================
+// Run state (accumulated for export)
+// ============================================================================
+let runState = null;
+function freshState() {
+  return { generated_at: null, geo_online: true, verdict: null,
+           elapsed_sec: null, targets: [], traces: {} };
+}
+
+// ============================================================================
+// SSE transport: generic frame reader over a fetch streaming body
+// ============================================================================
+async function consumeSSE(resp, handlerMap) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      if (frame.startsWith(":")) continue; // keep-alive comment
+      let name = "message";
+      const dataLines = [];
+      frame.split("\n").forEach((line) => {
+        if (line.startsWith("event:")) name = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+      });
+      if (!dataLines.length) continue;
+      let payload;
+      try { payload = JSON.parse(dataLines.join("\n")); } catch { continue; }
+      const fn = handlerMap[name] || handlerMap[payload.event];
+      if (fn) fn(payload);
+    }
+  }
+}
+
+// ============================================================================
+// On-demand per-target route trace (inline inside the site card)
+// ============================================================================
+function traceBodyHTML() {
+  return `
+    <div class="trace-analysis" data-role="analysis">
+      <span class="spinner"></span>正在逐跳追踪路由，节点与归属地会实时出现…
+    </div>
+    <div data-role="keynodes"></div>
+    <table>
+      <thead><tr><th style="width:24px"></th><th>跳</th><th>IP</th><th>延迟(中位)</th><th title="回应探测数/发送探测数。中间跳不回应多为路由器限速 ICMP，非丢包">应答</th><th>归属地 / 运营商</th></tr></thead>
+      <tbody data-role="hops"></tbody>
+    </table>
+    <details data-role="rawwrap" class="hidden">
+      <summary>原始 traceroute 输出</summary><pre data-role="raw"></pre>
+    </details>`;
+}
+function appendHopRow(panel, name, h) {
+  const body = panel.querySelector("[data-role=hops]");
+  if (!body) return;
+  const rowId = hopRowId(name, h.hop);
+  const detId = detailRowId(name, h.hop);
+  const cls = [h.slow ? "slow" : "",
+    (h.geo && (h.geo.scope === "private" || h.geo.scope === "reserved")) ? "gw" : ""]
+    .filter(Boolean).join(" ");
+  body.insertAdjacentHTML("beforeend",
+    `<tr id="${rowId}" class="${cls}">${hopRowInner(h)}</tr>` +
+    `<tr id="${detId}" class="detailrow hidden"><td colspan="6">${hopDetailHTML(h)}</td></tr>`);
+  if (h.ip) attachHopToggle(name, h.hop);
+}
+function updateHopGeo(name, hop, geo) {
+  const row = document.getElementById(hopRowId(name, hop));
+  if (!row) return;
+  const cell = row.querySelector("[data-role=geo]");
+  const g = geo || {};
+  const isGw = g.scope === "private" || g.scope === "reserved";
+  const loc = g.location || "归属地未知";
+  const carrier = g.carrier && g.carrier !== "-" ? g.carrier : "";
+  if (cell) {
+    cell.innerHTML = esc(loc) + (carrier ? ` · ${esc(carrier)}` : "") +
+      (g.asn ? ` <span class="src">${esc(g.asn)}</span>` : "");
+  }
+  if (isGw) row.classList.add("gw");
+}
+
+// First click runs an on-demand traceroute for that one site and streams hops
+// in; subsequent clicks just toggle visibility.
+async function toggleInlineTrace(btn) {
+  const name = btn.dataset.name;
+  const url = btn.dataset.url;
+  const card = document.getElementById(targetId(name));
+  if (!card) return;
+  const panel = card.querySelector("[data-role=inlinetrace]");
+  if (!panel) return;
+
+  if (panel.dataset.loaded === "1") {
+    const hidden = panel.classList.toggle("hidden");
+    btn.textContent = hidden ? "查看路由" : "收起路由";
+    return;
+  }
+  if (btn.dataset.busy === "1") return;
+
+  btn.dataset.busy = "1";
+  btn.disabled = true;
+  btn.textContent = "追踪中…";
+  panel.classList.remove("hidden");
+  panel.innerHTML = traceBodyHTML();
+
+  runState = runState || freshState();
+  runState.traces[name] = { dest_ip: null, dest_geo: null, hops: [], key_nodes: [], analysis: null, raw: null };
+  const trState = runState.traces[name];
+
+  try {
+    const resp = await fetch("/api/trace/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url, online_geo: $("geoOnline").checked }),
+    });
+    if (!resp.ok) {
+      let msg = "HTTP " + resp.status;
+      try { const j = await resp.json(); msg = j.error || msg; } catch {}
+      throw new Error(msg);
+    }
+    await consumeSSE(resp, {
+      trace_start(ev) {
+        trState.dest_ip = ev.dest_ip;
+        trState.dest_geo = ev.dest_geo;
+        const a = panel.querySelector("[data-role=analysis]");
+        const loc = ev.dest_geo && ev.dest_geo.location ? ` · ${esc(ev.dest_geo.location)}` : "";
+        if (a) a.innerHTML = `<span class="spinner"></span>目标 <span class="ip">${esc(ev.dest_ip)}</span>${loc}，正在逐跳追踪…`;
+      },
+      hop(ev) { trState.hops.push(ev.data); appendHopRow(panel, name, ev.data); },
+      hop_geo(ev) {
+        updateHopGeo(name, ev.hop, ev.geo);
+        const h = trState.hops.find((x) => x.hop === ev.hop);
+        if (h) h.geo = ev.geo;
+      },
+      trace_end(ev) {
+        trState.analysis = ev.analysis;
+        trState.key_nodes = ev.key_nodes || [];
+        trState.raw = ev.raw;
+        if (ev.hops) trState.hops = ev.hops;
+        const a = panel.querySelector("[data-role=analysis]");
+        if (a) {
+          const slow = (ev.hops || []).filter((h) => h.slow && h.ip);
+          let jump = "";
+          if (slow.length) {
+            const first = slow[0];
+            jump = ` <span class="chip jump" data-name="${esc(name)}" data-hop="${first.hop}">⚡ 定位到第 ${first.hop} 跳（${fmtMs(first.median_ms)}）</span>`;
+          }
+          a.innerHTML = esc(ev.analysis) + jump;
+          const chip = a.querySelector(".chip.jump");
+          if (chip) chip.addEventListener("click", () =>
+            scrollToHop(chip.dataset.name, parseInt(chip.dataset.hop, 10)));
+        }
+        const kn = panel.querySelector("[data-role=keynodes]");
+        if (kn) kn.innerHTML = (ev.key_nodes || []).filter((n) => n.ip).map(keyNodeHTML).join("");
+        const raw = panel.querySelector("[data-role=raw]");
+        const rawWrap = panel.querySelector("[data-role=rawwrap]");
+        if (raw && ev.raw) { raw.textContent = ev.raw; rawWrap.classList.remove("hidden"); }
+      },
+      error(ev) {
+        const a = panel.querySelector("[data-role=analysis]");
+        if (a) a.innerHTML = `<span style="color:var(--bad)">追踪失败：${esc(ev.message || "未知错误")}</span>`;
+      },
+    });
+    panel.dataset.loaded = "1";
+    btn.textContent = "收起路由";
+    $("exportBtn").disabled = false;
+  } catch (e) {
+    const a = panel.querySelector("[data-role=analysis]");
+    if (a) a.innerHTML = `<span style="color:var(--bad)">追踪失败：${esc(e.message)}</span>`;
+    btn.textContent = "重试路由";
+  } finally {
+    btn.dataset.busy = "0";
+    btn.disabled = false;
+  }
+}
+
+// ============================================================================
+// Batch check: SSE handlers (latency only; route trace is per-site on demand)
+// ============================================================================
+const batchHandlers = {
+  start(ev) {
+    runState = freshState();
+    runState.generated_at = ev.generated_at;
+    runState.geo_online = ev.geo_online;
+    $("verdict").style.display = "block";
+    $("verdict").innerHTML =
+      `<div><span class="spinner"></span>检测进行中…</div>
+       <div class="meta">开始于 ${esc(ev.generated_at)} · 归属地来源：${
+         ev.geo_online ? "在线（离线自动兜底）" : "离线"}</div>`;
+    const box = $("targets");
+    box.innerHTML = "";
+    (ev.target_names || []).forEach((name) => {
+      const card = document.createElement("div");
+      card.className = "card flash";
+      card.id = targetId(name);
+      card.innerHTML = pendingCardHTML(name);
+      box.appendChild(card);
+    });
+    $("targetsSec").style.display = "block";
+  },
+  target(ev) {
+    const t = ev.data;
+    runState.targets.push(t);
+    const card = document.getElementById(targetId(t.name));
+    if (card) {
+      card.className = "card flash";
+      card.innerHTML = targetCardHTML(t);
+      const btn = card.querySelector(".tracebtn");
+      if (btn) btn.addEventListener("click", () => toggleInlineTrace(btn));
+    }
+  },
+  verdict(ev) {
+    runState.verdict = ev.verdict;
+    const v = $("verdict");
+    const meta = v.querySelector(".meta");
+    v.innerHTML = `<div>${esc(ev.verdict)}</div>` + (meta ? meta.outerHTML : "");
+  },
+  done(ev) {
+    if (runState) runState.elapsed_sec = ev.elapsed_sec;
+    $("exportBtn").disabled = false;
+    // A manual run just produced a fresh history record; refresh the trend so
+    // the new point shows up without waiting for the periodic poll.
+    refreshTrend();
+    refreshScheduler();
+  },
+  error(ev) {
+    const status = $("status");
+    status.className = "status err";
+    status.textContent = "检测失败：" + (ev.message || "未知错误");
+  },
+};
+
+let running = false;
+async function runCheck() {
+  if (running) return;
+  running = true;
+  const btn = $("runBtn");
+  btn.disabled = true;
+  $("exportBtn").disabled = true;
+  const status = $("status");
+  status.className = "status";
+  status.innerHTML = `<span class="spinner"></span>正在实时检测，结果会边测边出现…`;
+
+  $("targets").innerHTML = "";
+
+  const body = {
+    online_geo: $("geoOnline").checked,
+    trace_targets: 0, // route trace is on-demand per site now
+  };
+  const customTargets = currentTargetsForRun();
+  if (customTargets.length) body.targets = customTargets;
+
+  try {
+    const resp = await fetch("/api/check/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      let msg = "HTTP " + resp.status;
+      try { const j = await resp.json(); msg = j.error || msg; } catch {}
+      throw new Error(msg);
+    }
+    await consumeSSE(resp, batchHandlers);
+    if (!status.classList.contains("err")) status.textContent = "检测完成，点任一站点「查看路由」可逐跳追踪。";
+  } catch (e) {
+    status.className = "status err";
+    status.textContent = "检测失败：" + e.message;
+  } finally {
+    running = false;
+    btn.disabled = false;
+  }
+}
+
+// ============================================================================
+// Export (JSON + readable text report), built from accumulated runState
+// ============================================================================
+function download(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+function buildTextReport(s) {
+  const L = [];
+  L.push("NetCheck 网络检测报告");
+  L.push("生成时间: " + (s.generated_at || "-") + "  耗时: " + (s.elapsed_sec ?? "-") + "s");
+  L.push("归属地来源: " + (s.geo_online ? "在线（离线兜底）" : "离线"));
+  L.push("总体结论: " + (s.verdict || "-"));
+  L.push("");
+  L.push("== 站点延迟 ==");
+  s.targets.forEach((t) => {
+    L.push(`- ${t.name} (${t.url})`);
+    if (t.ok) {
+      const p = t.phases || {};
+      L.push(`    中位 ${fmtSec(t.total_median)}  P95 ${fmtSec(t.total_p95)}  下载 ${fmtRate(t.speed_median)}`);
+      L.push(`    DNS ${fmtSec(p.dns)} | TCP ${fmtSec(p.tcp)} | TLS ${fmtSec(p.tls)} | 服务端 ${fmtSec(p.server)} | 下载 ${fmtSec(p.download)}`);
+      if (t.geo) L.push(`    目标 IP ${t.geo.ip || "-"}  ${t.geo.location || ""}  ${t.geo.carrier || ""}  ${t.geo.asn || ""}`);
+    } else {
+      L.push(`    访问失败（${t.failures}/${t.samples}）`);
+    }
+    L.push(`    诊断: ${t.diagnosis || "-"}`);
+  });
+  const traceNames = Object.keys(s.traces);
+  if (traceNames.length) {
+    L.push("");
+    L.push("== 路由追踪 ==");
+    traceNames.forEach((name) => {
+      const tr = s.traces[name];
+      L.push(`- ${name} -> ${tr.dest_ip || "-"} ${tr.dest_geo && tr.dest_geo.location ? "(" + tr.dest_geo.location + ")" : ""}`);
+      L.push(`    分析: ${tr.analysis || "-"}`);
+      (tr.hops || []).forEach((h) => {
+        const g = h.geo || {};
+        const probes = (h.probes_ms || []).map((x) => x.toFixed(1)).join("/") || "-";
+        L.push(`    ${String(h.hop).padStart(2)}  ${(h.ip || "*").padEnd(16)}  中位 ${fmtMs(h.median_ms)}  探测[${probes}]ms  丢包 ${h.loss_pct || 0}%  ${g.location || ""} ${g.carrier || ""} ${g.asn || ""}`.trimEnd());
+      });
+    });
+  }
+  return L.join("\n");
+}
+$("exportBtn").addEventListener("click", () => {
+  if (!runState) return;
+  const stamp = (runState.generated_at || new Date().toISOString()).replace(/[:.]/g, "-");
+  download(`netcheck-${stamp}.json`, JSON.stringify(runState, null, 2), "application/json");
+  download(`netcheck-${stamp}.txt`, buildTextReport(runState), "text/plain;charset=utf-8");
+});
+
+$("runBtn").addEventListener("click", runCheck);
+
+// ============================================================================
+// Trend chart: dependency-free canvas line chart over /api/history
+//
+// One series per target. The active metric and look-back window are chosen
+// with the segmented buttons; a legend toggles individual series. Rendering is
+// pure canvas (no chart library) so the page keeps its zero-dependency footing.
+// ============================================================================
+
+// The four plottable metrics. Each knows how to format a value for the axis /
+// tooltip and whether "bigger is better" (only download speed is).
+const METRICS = {
+  total_median: { label: "延迟(中位)", unit: "s", fmt: fmtSec, higherBetter: false },
+  total_p95:    { label: "延迟(P95)",  unit: "s", fmt: fmtSec, higherBetter: false },
+  speed_median: { label: "下载速率",   unit: "",  fmt: fmtRate, higherBetter: true },
+  failure_rate: { label: "失败率",     unit: "%", fmt: (v) => (v == null ? "-" : (v * 100).toFixed(0) + "%"), higherBetter: false },
+};
+
+// Stable palette; series get a color by their index in the target order.
+const SERIES_COLORS = [
+  "#4f8cff", "#35c46a", "#f5a623", "#ef4d5a",
+  "#7c5cff", "#22c1c3", "#e879f9", "#a3e635",
+  "#fb923c", "#38bdf8", "#f472b6", "#facc15",
+];
+
+const trend = {
+  metric: "total_median",
+  rangeSec: 21600,        // 6 hours, matches the .active range button
+  records: [],            // raw history records, oldest-first
+  series: [],             // [{ name, color, points: [{t, v}] }]
+  hidden: new Set(),      // series names the user has toggled off
+  points: [],             // flattened screen-space points for hit-testing
+  loading: false,
+};
+
+// ---- data shaping ---------------------------------------------------------
+// Pivot the flat record list into one time-series per target for the active
+// metric. A missing/failed value becomes a gap (null) so the line breaks
+// rather than drawing a misleading segment across an outage.
+function buildSeries() {
+  const byName = new Map();     // name -> [{t, v}]
+  const order = [];             // preserve first-seen target order
+  for (const rec of trend.records) {
+    const t = Date.parse(rec.ts);
+    if (Number.isNaN(t)) continue;
+    for (const tg of rec.targets || []) {
+      const name = tg.name;
+      if (!name) continue;
+      if (!byName.has(name)) { byName.set(name, []); order.push(name); }
+      let v = tg[trend.metric];
+      // Failure rate is meaningful even when a target is down; every other
+      // metric is only trustworthy on a successful sample.
+      if (trend.metric !== "failure_rate" && !tg.ok) v = null;
+      if (v === undefined) v = null;
+      byName.get(name).push({ t, v });
+    }
+  }
+  trend.series = order.map((name, i) => ({
+    name,
+    color: SERIES_COLORS[i % SERIES_COLORS.length],
+    points: byName.get(name),
+  }));
+}
+
+// ---- rendering ------------------------------------------------------------
+const PAD = { top: 16, right: 16, bottom: 28, left: 52 };
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / pow;
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+function fmtClock(t) {
+  const d = new Date(t);
+  const p = (n) => String(n).padStart(2, "0");
+  // Include the day for windows longer than a day so ticks stay unambiguous.
+  const withDay = trend.rangeSec > 86400;
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  return withDay ? `${p(d.getMonth() + 1)}/${p(d.getDate())} ${hm}` : hm;
+}
+
+function drawChart() {
+  const canvas = $("trendChart");
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  const cssW = wrap.clientWidth;
+  const cssH = 300;
+  const dpr = window.devicePixelRatio || 1;
+  // Size the backing store to device pixels for crisp lines on retina.
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  trend.points = [];
+
+  const visible = trend.series.filter((s) => !trend.hidden.has(s.name));
+  const hasData = visible.some((s) => s.points.some((p) => p.v != null));
+  $("chartEmpty").classList.toggle("hidden", trend.records.length > 0);
+  if (!trend.records.length || !hasData) return;
+
+  const now = Date.now();
+  const tMin = now - trend.rangeSec * 1000;
+  const tMax = now;
+
+  const met = METRICS[trend.metric];
+  let vMax = 0;
+  for (const s of visible) {
+    for (const p of s.points) {
+      if (p.v != null && p.t >= tMin) vMax = Math.max(vMax, p.v);
+    }
+  }
+  vMax = niceMax(vMax || (met.unit === "%" ? 1 : (trend.metric === "speed_median" ? 1 : 1)));
+  if (trend.metric === "failure_rate") vMax = Math.max(vMax, 1); // 0..100%
+
+  const plotW = cssW - PAD.left - PAD.right;
+  const plotH = cssH - PAD.top - PAD.bottom;
+  const xOf = (t) => PAD.left + ((t - tMin) / (tMax - tMin)) * plotW;
+  const yOf = (v) => PAD.top + plotH - (v / vMax) * plotH;
+
+  // grid + y labels
+  ctx.font = "11px -apple-system, sans-serif";
+  ctx.textBaseline = "middle";
+  const rows = 4;
+  for (let i = 0; i <= rows; i++) {
+    const v = (vMax / rows) * i;
+    const y = yOf(v);
+    ctx.strokeStyle = "rgba(255,255,255,.06)";
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, y);
+    ctx.lineTo(cssW - PAD.right, y);
+    ctx.stroke();
+    ctx.fillStyle = "#8a97b1";
+    ctx.textAlign = "right";
+    ctx.fillText(met.fmt(v), PAD.left - 8, y);
+  }
+
+  // x labels (a handful of evenly-spaced clock ticks)
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const xTicks = 5;
+  for (let i = 0; i <= xTicks; i++) {
+    const t = tMin + ((tMax - tMin) / xTicks) * i;
+    ctx.fillStyle = "#8a97b1";
+    ctx.fillText(fmtClock(t), xOf(t), cssH - PAD.bottom + 8);
+  }
+
+  // series lines
+  ctx.lineWidth = 1.8;
+  ctx.lineJoin = "round";
+  for (const s of visible) {
+    ctx.strokeStyle = s.color;
+    ctx.beginPath();
+    let started = false;
+    for (const p of s.points) {
+      if (p.t < tMin) continue;
+      if (p.v == null) { started = false; continue; } // break the line on a gap
+      const x = xOf(p.t);
+      const y = yOf(p.v);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+      trend.points.push({ x, y, t: p.t, v: p.v, name: s.name, color: s.color });
+    }
+    ctx.stroke();
+  }
+  // point dots on top so hover targets are visible on sparse data
+  for (const pt of trend.points) {
+    ctx.fillStyle = pt.color;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ---- legend ---------------------------------------------------------------
+function renderLegend() {
+  const box = $("trendLegend");
+  if (!box) return;
+  box.innerHTML = trend.series.map((s) =>
+    `<span class="lg ${trend.hidden.has(s.name) ? "muted" : ""}" data-name="${esc(s.name)}">
+       <i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("");
+  box.querySelectorAll(".lg").forEach((el) => {
+    el.addEventListener("click", () => {
+      const name = el.dataset.name;
+      if (trend.hidden.has(name)) trend.hidden.delete(name);
+      else trend.hidden.add(name);
+      renderLegend();
+      drawChart();
+    });
+  });
+}
+
+// ---- tooltip (nearest point on hover) -------------------------------------
+function onChartMove(ev) {
+  const tip = $("chartTip");
+  if (!trend.points.length) { tip.classList.add("hidden"); return; }
+  const canvas = $("trendChart");
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left;
+  const my = ev.clientY - rect.top;
+
+  // Snap to the nearest sample time, then show every visible series at that time.
+  let best = null, bestDx = Infinity;
+  for (const p of trend.points) {
+    const dx = Math.abs(p.x - mx);
+    if (dx < bestDx) { bestDx = dx; best = p; }
+  }
+  if (!best || bestDx > 40) { tip.classList.add("hidden"); return; }
+
+  const met = METRICS[trend.metric];
+  const rows = trend.points
+    .filter((p) => p.t === best.t && !trend.hidden.has(p.name))
+    .sort((a, b) => b.v - a.v)
+    .map((p) => `<div class="tip-row"><i style="background:${p.color}"></i>${esc(p.name)}<b>${met.fmt(p.v)}</b></div>`)
+    .join("");
+  tip.innerHTML = `<div class="tip-time">${esc(new Date(best.t).toLocaleString())}</div>${rows}`;
+  tip.style.left = best.x + "px";
+  tip.style.top = (best.y - 12) + "px";
+  tip.classList.remove("hidden");
+}
+function onChartLeave() { $("chartTip").classList.add("hidden"); }
+
+// ---- fetch + refresh ------------------------------------------------------
+async function loadHistory() {
+  if (trend.loading) return;
+  trend.loading = true;
+  try {
+    const resp = await fetch(`/api/history?since_seconds=${trend.rangeSec}`);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    trend.records = Array.isArray(data.records) ? data.records : [];
+    buildSeries();
+    // Drop hidden names that no longer exist so the set can't grow stale.
+    const live = new Set(trend.series.map((s) => s.name));
+    trend.hidden.forEach((n) => { if (!live.has(n)) trend.hidden.delete(n); });
+    renderLegend();
+    drawChart();
+    $("trendSec").classList.add("show");
+  } catch (e) {
+    // History is non-critical; leave the last good chart up on a transient error.
+  } finally {
+    trend.loading = false;
+  }
+}
+
+$("metricSeg").querySelectorAll("button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    trend.metric = btn.dataset.metric;
+    $("metricSeg").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+    buildSeries();
+    drawChart();
+  });
+});
+$("rangeSeg").querySelectorAll("button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    trend.rangeSec = parseInt(btn.dataset.range, 10);
+    $("rangeSeg").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+    loadHistory();
+  });
+});
+$("trendChart").addEventListener("mousemove", onChartMove);
+$("trendChart").addEventListener("mouseleave", onChartLeave);
+// Redraw on resize so the responsive-width canvas stays sharp.
+let resizeRAF = null;
+window.addEventListener("resize", () => {
+  if (resizeRAF) cancelAnimationFrame(resizeRAF);
+  resizeRAF = requestAnimationFrame(drawChart);
+});
+
+// ============================================================================
+// Scheduler control: toggle periodic checks, show a live next-run countdown
+// ============================================================================
+const sched = { nextRunAt: null, enabled: false, tick: null };
+
+function fmtCountdown(ms) {
+  if (ms <= 0) return "即将检测…";
+  const s = Math.round(ms / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `下次检测 ${m}分${String(r).padStart(2, "0")}秒后` : `下次检测 ${r}秒后`;
+}
+function renderSchedCountdown() {
+  const el = $("schedNext");
+  if (!sched.enabled) { el.textContent = "已暂停"; return; }
+  if (!sched.nextRunAt) { el.textContent = "—"; return; }
+  el.textContent = fmtCountdown(sched.nextRunAt - Date.now());
+}
+function applySchedStatus(st) {
+  sched.enabled = !!st.enabled;
+  sched.nextRunAt = st.next_run_at ? Date.parse(st.next_run_at) : null;
+  $("schedToggle").checked = sched.enabled;
+  $("sched").classList.toggle("off", !sched.enabled);
+  if (st.interval_seconds) $("schedInterval").value = String(st.interval_seconds);
+  renderSchedCountdown();
+}
+async function loadSchedulerStatus() {
+  try {
+    const resp = await fetch("/api/scheduler");
+    if (resp.ok) applySchedStatus(await resp.json());
+  } catch {}
+}
+async function postScheduler(body) {
+  try {
+    const resp = await fetch("/api/scheduler", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (resp.ok) applySchedStatus(await resp.json());
+  } catch {}
+}
+$("schedToggle").addEventListener("change", () => {
+  postScheduler({ enabled: $("schedToggle").checked });
+});
+$("schedInterval").addEventListener("change", () => {
+  postScheduler({ interval_seconds: parseInt($("schedInterval").value, 10) });
+});
+
+// Poll the scheduler status and refresh history periodically. The 1s ticker
+// keeps the countdown live; a slower poll pulls new points and re-syncs the
+// next-run estimate without hammering the server.
+let historyPollElapsed = 0;
+function startTickers() {
+  if (sched.tick) return;
+  sched.tick = setInterval(() => {
+    renderSchedCountdown();
+    historyPollElapsed += 1;
+    // The moment the countdown crosses zero a new record is likely written;
+    // refresh a beat later so the fresh point is included.
+    if (sched.enabled && sched.nextRunAt && Date.now() >= sched.nextRunAt + 2000) {
+      sched.nextRunAt = null;         // avoid repeated refreshes until re-synced
+      loadSchedulerStatus();
+      setTimeout(loadHistory, 500);
+    }
+    if (historyPollElapsed >= 30) {   // periodic safety re-sync every 30s
+      historyPollElapsed = 0;
+      loadSchedulerStatus();
+      loadHistory();
+    }
+  }, 1000);
+}
+
+// Initial load.
+loadSchedulerStatus();
+loadHistory();
+startTickers();
+</script>
+</body>
+</html>
