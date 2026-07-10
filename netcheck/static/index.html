@@ -850,8 +850,8 @@ const batchHandlers = {
     $("exportBtn").disabled = false;
     // A manual run just produced a fresh history record; refresh the trend so
     // the new point shows up without waiting for the periodic poll.
-    refreshTrend();
-    refreshScheduler();
+    loadHistory();
+    loadSchedulerStatus();
   },
   error(ev) {
     const status = $("status");
